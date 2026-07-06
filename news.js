@@ -540,18 +540,74 @@ async function getMockNews({ query = '', category = 'All' }) {
  * @param {string} [params.category]
  * @returns {Promise<Object>}
  */
-async function getNews({ query = '', category = 'All' } = {}) {
-    console.log(`[Flow 4/5] getNews called with: { query: '${query}', category: '${category}' }`);
-    try {
-        const data = await fetchNews({ query, category });
-        console.log(`[Flow 4/5] fetchNews succeeded.`);
-        data._source = 'live';
-        return data;
-    } catch (error) {
-        console.warn(`[Flow 4/5] fetchNews failed (${error.message}). Falling back to mock data.`);
-        const data = await getMockNews({ query, category });
-        data._source = 'mock';
-        return data;
+/**
+ * Main function to get news. Tries area, then district, then state. Falls back to mock news cascade.
+ * @param {Object} params
+ * @param {string} [params.query] - Area/city name
+ * @param {string} [params.district] - District/county name
+ * @param {string} [params.state] - State/province name
+ * @param {string} [params.category] - News category
+ * @returns {Promise<Object>}
+ */
+async function getNews({ query = '', district = '', state = '', category = 'All' } = {}) {
+    console.log(`[Flow 4/5] getNews called with: { query: '${query}', district: '${district}', state: '${state}', category: '${category}' }`);
+    
+    // We will build a list of location queries to try in sequence for the live API
+    const liveQueries = [];
+    if (query && query.trim()) {
+        liveQueries.push({ term: query.trim(), level: 'area' });
     }
+    if (district && district.trim() && district.trim().toLowerCase() !== query.trim().toLowerCase()) {
+        liveQueries.push({ term: district.trim(), level: 'district' });
+    }
+    if (state && state.trim() && state.trim().toLowerCase() !== district.trim().toLowerCase() && state.trim().toLowerCase() !== query.trim().toLowerCase()) {
+        liveQueries.push({ term: state.trim(), level: 'state' });
+    }
+    // Try fetching live news for each location in sequence
+    for (const qObj of liveQueries) {
+        try {
+            console.log(`Attempting live news fetch for ${qObj.level}: "${qObj.term}"`);
+            const data = await fetchNews({ query: qObj.term, category });
+            console.log(`[Flow 4/5] fetchNews succeeded for ${qObj.level}: "${qObj.term}".`);
+            data._source = 'live';
+            data._queryUsed = qObj.term;
+            data._queryLevel = qObj.level;
+            return data;
+        } catch (error) {
+            console.warn(`Live news fetch failed for ${qObj.level} "${qObj.term}": ${error.message}`);
+            // If GNews API returns rate limits or unauthorized or a network issue,
+            // don't keep hammering the API with further queries. Immediately fallback to mock.
+            if (error.message.includes('Rate limited') || error.message.includes('Unauthorized') || error.message.includes('Network error')) {
+                console.warn(`Critical API/network error. Skipping further live attempts and falling back to mock data.`);
+                break;
+            }
+        }
+    }
+    // If we reach here, all live attempts failed/returned 0 results, or we had a critical API error.
+    // Try mock news in the same fallback order: Area -> District -> State -> General Mock
+    const mockQueries = [...liveQueries];
+    // Add a final fallback of empty query (no query filter) so it is NEVER blank!
+    mockQueries.push({ term: '', level: 'general mock' });
+    for (const qObj of mockQueries) {
+        try {
+            console.log(`Attempting mock news fallback for ${qObj.level}: "${qObj.term}"`);
+            const data = await getMockNews({ query: qObj.term, category });
+            data._source = 'mock';
+            data._queryUsed = qObj.term || 'General';
+            data._queryLevel = qObj.level;
+            return data;
+        } catch (error) {
+            console.warn(`Mock news fetch failed for ${qObj.level} "${qObj.term}": ${error.message}`);
+        }
+    }
+    // Ultimate fallback if mockQueries somehow fails (should never happen because general mock filter doesn't throw)
+    return {
+        status: "ok",
+        totalArticles: 0,
+        articles: [],
+        _source: 'mock',
+        _queryUsed: 'None',
+        _queryLevel: 'empty'
+    };
 }
 window.getNews = getNews;
