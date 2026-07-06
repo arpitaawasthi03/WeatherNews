@@ -129,7 +129,7 @@ export function renderSearchSuggestions(cities) {
     }
 
     el.innerHTML = cities.map(city => `
-      <div class="search-item" data-lat="${city.latitude}" data-lon="${city.longitude}" data-name="${city.name}" data-country="${city.country_code || 'US'}" data-timezone="${city.timezone || 'GMT'}">
+      <div class="search-item" data-lat="${city.latitude}" data-lon="${city.longitude}" data-name="${city.name}" data-country="${city.country_code || 'US'}" data-timezone="${city.timezone || 'GMT'}" data-admin1="${city.admin1 || ''}" data-admin2="${city.admin2 || ''}">     
         <span class="search-item-pin">${getIcon("map-pin")}</span>
         <div class="search-item-details">
           <span class="search-item-name">${city.name}${city.admin1 ? ', ' + city.admin1 : ''}</span>
@@ -148,7 +148,9 @@ export function renderSearchSuggestions(cities) {
           lat: parseFloat(item.getAttribute("data-lat")),
           lon: parseFloat(item.getAttribute("data-lon")),
           country: item.getAttribute("data-country"),
-          timezone: item.getAttribute("data-timezone")
+          timezone: item.getAttribute("data-timezone"),
+          admin1: item.getAttribute("data-admin1") || "",
+          admin2: item.getAttribute("data-admin2") || ""
         };
         
         // Clear search inputs
