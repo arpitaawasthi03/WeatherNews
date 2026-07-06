@@ -1,3 +1,4 @@
+
 // Main app coordination and initialization
 import { initUI as initWeatherUI, renderDashboardContent, showLoading as showWeatherLoading, showError as showWeatherError, renderSearchSuggestions, updateThemeUI } from "./weatherUi.js";
 import { searchCities, fetchWeatherData } from "./weatherApi.js";
@@ -93,27 +94,40 @@ function updateDebugBadge(source) {
 
 /**
  * Fetches and displays news for a given city and current category in the News Tab
- * @param {string} cityName 
+ * @param {Object|string} locationInput 
  */
-async function handleLocationNews(cityName = '') {
+async function handleLocationNews(locationInput = '') {
     window.currentView = 'news';
     const savedBtn = document.getElementById('saved-articles-btn');
     if (savedBtn) savedBtn.style.color = 'inherit';
     
     const titleEl = document.querySelector('#news-view .news-header-titles h2');
     if (titleEl) titleEl.textContent = 'News Feed';
-
-    currentCity = cityName;
-    console.log(`[News Flow] handleLocationNews started for: "${cityName}". Category: "${currentCategory}".`);
-    
+    let query = '';
+    let district = '';
+    let state = '';
+    let displayName = '';
+    if (locationInput && typeof locationInput === 'object') {
+        query = locationInput.name || '';
+        district = locationInput.admin2 || '';
+        state = locationInput.admin1 || '';
+        displayName = locationInput.name || '';
+        currentCity = locationInput;
+    } else if (typeof locationInput === 'string') {
+        query = locationInput;
+        displayName = locationInput;
+        currentCity = locationInput;
+    }
+    console.log(`[News Flow] handleLocationNews started for: "${query}". Category: "${currentCategory}".`);
+  
     window.showNewsLoading('news-grid');
     updateDebugBadge(null);
     
     const requestId = ++currentRequestId;
     
     try {
-        const data = await window.getNews({ query: cityName, category: currentCategory });
-        
+              const data = await window.getNews({ query, district, state, category: currentCategory });
+
         if (requestId !== currentRequestId) return;
         
         updateDebugBadge(data._source);
@@ -124,46 +138,82 @@ async function handleLocationNews(cityName = '') {
             const sortBy = sortSelect ? sortSelect.value : 'newest';
             sortArticles(currentArticles, sortBy);
             window.renderNewsCards(currentArticles, 'news-grid');
+            let matchLabel = '';
+            if (data._queryLevel === 'district') {
+                matchLabel = ` - ${district}`;
+            } else if (data._queryLevel === 'state') {
+                matchLabel = ` - ${state}`;
+            } else if (data._queryLevel === 'general mock') {
+                matchLabel = ` - General Mock`;
+            }
+            
+            if (titleEl) {
+                titleEl.textContent = `News Feed${matchLabel}`;
+            }
+
             updateNewsMeta(currentArticles.length);
+          
         } else {
             currentArticles = [];
-            window.showNoNewsFound(cityName, 'news-grid');
+          window.showNoNewsFound(displayName, 'news-grid');
         }
     } catch (error) {
         if (requestId !== currentRequestId) return;
         currentArticles = [];
         
         if (error.message && error.message.includes('No results')) {
-            window.showNoNewsFound(cityName, 'news-grid');
+            window.showNoNewsFound(displayName, 'news-grid');
         } else {
-            window.showNewsError(error.message || 'An error occurred while fetching news.', () => handleLocationNews(cityName), 'news-grid');
+            window.showNewsError(error.message || 'An error occurred while fetching news.', () => handleLocationNews(locationInput), 'news-grid');
         }
     }
 }
 
 /**
  * Fetches and displays news specifically for the Dashboard Tab
- * @param {string} cityName 
+ * @param {Object|string} locationInput 
  */
-async function fetchDashboardNews(cityName = '') {
-    const gridId = 'dashboard-news-grid';
+async function fetchDashboardNews(locationInput = '') {
+  const gridId = 'dashboard-news-grid';
     const countEl = document.getElementById('dashboard-article-count');
     const badgeEl = document.getElementById('dashboard-debug-badge');
 
     window.showNewsLoading(gridId);
     if (badgeEl) badgeEl.style.display = 'none';
+    let query = '';
+    let district = '';
+    let state = '';
+    let displayName = '';
+    if (locationInput && typeof locationInput === 'object') {
+        query = locationInput.name || '';
+        district = locationInput.admin2 || '';
+        state = locationInput.admin1 || '';
+        displayName = locationInput.name || '';
+    } else if (typeof locationInput === 'string') {
+        query = locationInput;
+        displayName = locationInput;
+    }
 
     try {
         // Fetch raw news for city (Dashboard shows 'All' categories)
-        const data = await window.getNews({ query: cityName, category: 'All' });
+        const data = await window.getNews({ query, district, state, category: 'All' });
         
         if (data && data.articles && data.articles.length > 0) {
             // Display only a compact list of 4 items for the Dashboard column
             const compactArticles = data.articles.slice(0, 4);
             window.renderNewsCards(compactArticles, gridId);
+            let matchLabel = '';
+            if (data._queryLevel === 'district') {
+                matchLabel = ` (${district})`;
+            } else if (data._queryLevel === 'state') {
+                matchLabel = ` (${state})`;
+            } else if (data._queryLevel === 'general mock') {
+                matchLabel = ` (General Mock)`;
+            }
+
             
             if (countEl) {
-                countEl.textContent = `${data.articles.length} article${data.articles.length !== 1 ? 's' : ''}`;
+                   countEl.textContent = `${data.articles.length} article${data.articles.length !== 1 ? 's' : ''}${matchLabel}`;           
             }
 
             if (badgeEl && DEBUG_MODE) {
@@ -177,11 +227,11 @@ async function fetchDashboardNews(cityName = '') {
                 }
             }
         } else {
-            window.showNoNewsFound(cityName, gridId);
+            window.showNoNewsFound(displayName, gridId);
             if (countEl) countEl.textContent = '0 articles';
         }
     } catch (error) {
-        window.showNoNewsFound(cityName, gridId);
+        window.showNoNewsFound(displayName, gridId);
         if (countEl) countEl.textContent = '0 articles';
     }
 }
@@ -190,10 +240,37 @@ async function fetchDashboardNews(cityName = '') {
 // WEATHER COORDINATION LOGIC
 // ==========================================================================
 
+async function resolveCitySubdivisions(cityObj) {
+  if (!cityObj) return cityObj;
+  if (cityObj.admin1 !== undefined && cityObj.admin2 !== undefined) {
+    return cityObj;
+  }
+  try {
+    const results = await searchCities(cityObj.name);
+    if (results && results.length > 0) {
+      // Find the closest coordinate match or fallback to the first result
+      const match = results.find(r => 
+        Math.abs(r.latitude - cityObj.lat) < 0.5 && 
+        Math.abs(r.longitude - cityObj.lon) < 0.5
+      ) || results[0];
+      
+      cityObj.admin1 = match.admin1 || "";
+      cityObj.admin2 = match.admin2 || "";
+    }
+  } catch (e) {
+    console.warn("Failed to resolve city subdivisions dynamically:", e);
+  }
+  return cityObj;
+}
+
+
 async function loadCityWeather(cityObj) {
   showWeatherLoading();
   
   try {
+     // Resolve subdivisions if missing (backwards compatibility/saved cities)
+    cityObj = await resolveCitySubdivisions(cityObj);
+
     const cached = getCachedWeatherData(cityObj.name);
     
     if (cached) {
@@ -217,8 +294,8 @@ async function loadCityWeather(cityObj) {
     renderDashboardContent(currentWeatherData, getSavedCities(), theme);
     
     // Auto-sync: Update news for this city on both views
-    fetchDashboardNews(cityObj.name);
-    handleLocationNews(cityObj.name);
+    fetchDashboardNews(cityObj);
+    handleLocationNews(cityObj);
   } catch (error) {
     console.error("Error loading weather data:", error);
     showWeatherError(
@@ -379,13 +456,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const cityName = geoData.city || geoData.locality || geoData.principalSubdivision || "My Location";
                 const countryCode = geoData.countryCode || "US";
+                const admin1 = geoData.principalSubdivision || "";
+                let admin2 = "";
+
+                if (geoData.localityInfo && Array.isArray(geoData.localityInfo.administrative)) {
+                    const admins = geoData.localityInfo.administrative;
+                    const districtObj = admins.find(a => {
+                        const nameLower = a.name.toLowerCase();
+                        const isCountryOrStateOrCity = nameLower === (geoData.countryName || "").toLowerCase() || 
+                                                 nameLower === admin1.toLowerCase() ||
+                                                 nameLower === cityName.toLowerCase();
+                        if (isCountryOrStateOrCity) return false;
+                        return a.adminLevel === 5 || 
+                               a.adminLevel === 6 || 
+                               nameLower.includes("district") || 
+                               nameLower.includes("county");
+                    });
+                    if (districtObj) {
+                        admin2 = districtObj.name;
+                    }
+                }
                 
+              
                 loadCityWeather({
                     name: cityName,
                     lat: lat,
                     lon: lon,
                     country: countryCode,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "auto"
+                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "auto",
+                    admin1: admin1,
+                    admin2: admin2
                 });
             } catch (err) {
                 console.warn("Reverse geocoding failed, falling back to default city:", err);
@@ -407,7 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
                 const inputValue = e.target.value.trim();
-                handleLocationNews(inputValue || activeCity.name);
+                handleLocationNews(inputValue || activeCity);
             }, 300);
         });
     }
