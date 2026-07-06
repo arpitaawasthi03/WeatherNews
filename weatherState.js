@@ -8,17 +8,19 @@ const ACTIVE_CITY_KEY = "weather_dashboard_active_city";
 
 // Default cities list when none is in storage
 const DEFAULT_SAVED_CITIES = [
-  { name: "San Francisco", lat: 37.7749, lon: -122.4194, country: "US" },
-  { name: "New York", lat: 40.7128, lon: -74.0060, country: "US" },
-  { name: "London", lat: 51.5074, lon: -0.1278, country: "GB" },
-  { name: "Tokyo", lat: 35.6762, lon: 139.6503, country: "JP" }
+  { name: "San Francisco", lat: 37.7749, lon: -122.4194, country: "US", admin1: "California", admin2: "San Francisco County" },
+  { name: "New York", lat: 40.7128, lon: -74.0060, country: "US", admin1: "New York", admin2: "Queens County" },
+  { name: "London", lat: 51.5074, lon: -0.1278, country: "GB", admin1: "England", admin2: "Greater London" },
+  { name: "Tokyo", lat: 35.6762, lon: 139.6503, country: "JP", admin1: "Tokyo", admin2: "" }
 ];
 
 const DEFAULT_ACTIVE_CITY = {
   name: "San Francisco",
   lat: 37.7749,
   lon: -122.4194,
-  country: "US"
+  country: "US",
+  admin1: "California",
+  admin2: "San Francisco County"
 };
 
 // Weather data cache (in-memory) to improve layout snappiness
